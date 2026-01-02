@@ -1,0 +1,10 @@
+model:
+  pretrained: true
+
+training:
+  batch_size: 128
+  epochs: 50
+  learning_rate: 0.001
+
+val:
+  batch_size: 32

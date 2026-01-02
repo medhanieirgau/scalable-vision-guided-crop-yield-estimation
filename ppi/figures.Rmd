@@ -1,0 +1,636 @@
+---
+title: "paper_figures"
+author: "Anonymous"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+This .Rmd file reproduces the figures and tables in the paper "Scalable vision-guided crop yield estimation."
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(readxl)
+library(cowplot)
+library(gridExtra)
+```
+
+## Global constants
+
+```{r}
+PATH <- "/Users/harrisonli/Documents/iCloud_Documents/Research/crop_cuts/code_appendix/ppi/"
+COUNTRIES <- c("Nigeria", "Zambia", "Zambia", "Zimbabwe") # order of countries in simulation out files
+CROPS <- c("Rice", "Maize", "Maize", "Maize") # order of crops in simulation out files
+YEARS <- c(2022, 2023, 2024, 2024)
+EST_NAMES <- c("lbl", "nophoto", "aipw", "ppipp", "ppi")
+```
+
+```{r}
+source(paste0(PATH, "helpers.R"))
+```
+
+## Read in data
+
+```{r}
+# Summary files: All data before filtering to zones with >= 20 fields
+summary_file_names <- paste(COUNTRIES, YEARS, "cleaned.csv", sep="_")
+summary_file <- do.call("rbind", lapply(summary_file_names, read_csv)) %>%
+  rename(year=data_collection_year) %>%
+  mutate(country_year = paste(country, year, sep=" "))
+```
+
+## Figure 1: Sample field photos
+
+The `cce_id` can be used to manually look up field photos in a database.
+
+```{r}
+# Find CCE id of maize photos with high yields
+summary_file %>%
+  filter(country_year == "Zimbabwe 2024", Avg_yield_mt_ha > 0) %>%
+  dplyr::select(cce_id, Avg_yield_mt_ha) %>%
+  arrange(desc(Avg_yield_mt_ha))
+```
+
+```{r}
+# Find CCE id of maize photos with low yields
+summary_file %>%
+  filter(country_year == "Zimbabwe 2024", Avg_yield_mt_ha > 0) %>%
+  dplyr::select(cce_id, Avg_yield_mt_ha) %>%
+  arrange(Avg_yield_mt_ha)
+```
+
+```{r}
+# Find CCE ID of rice photos with high yield
+summary_file %>%
+  filter(country_year == "Nigeria 2022", Avg_yield_mt_ha > 0) %>%
+  dplyr::select(cce_id, Avg_yield_mt_ha) %>%
+  arrange(desc(Avg_yield_mt_ha))
+```
+
+```{r}
+# Find CCE ID of rice photos with high yield
+summary_file %>%
+  filter(country_year == "Nigeria 2022", Avg_yield_mt_ha > 0) %>%
+  dplyr::select(cce_id, Avg_yield_mt_ha) %>%
+  arrange(Avg_yield_mt_ha)
+```
+
+## Table 1: Zone summary info
+
+```{r}
+# Compute zone sizes
+zone_sizes <- summary_file %>%
+  group_by(crop, country_year, zone) %>%
+  mutate(year=as.factor(year)) %>%
+  summarise(n_fields=n()) %>%
+  ungroup()
+zone_sizes
+```
+
+```{r}
+# Give number of fields and zones by (country, year)
+summary_file %>%
+  left_join(zone_sizes, by=c("zone", "crop", "country_year")) %>%
+  filter(n_fields >= 20) %>%
+  group_by(crop, country_year) %>%
+  summarise(total_fields=n(),
+            n_zones=n_distinct(zone))
+```
+
+## Figure 2: Zone size histograms
+
+```{r}
+crops <- unique(CROPS)
+zone_size_plots <- lapply(crops, function(crp) {
+  plt <- zone_sizes %>%
+    filter(crop==crp) %>%
+    ggplot(aes(x=n_fields)) +
+    geom_histogram(alpha=0.3, binwidth=5, boundary=-0.0001, fill="red") +
+    geom_vline(xintercept=20) +
+    facet_wrap(~ country_year, nrow=1, scales="free_y") +
+    labs(x="", y="", title=crp) +
+    theme_bw()+
+    theme(text = element_text(size = 15),
+          axis.text.x = element_text(angle = 90, hjust = 1, size = 15))
+  return(plt)
+})
+n_country_year_by_crop <- sapply(crops, function(crp) mean(CROPS==crp))
+zone_size_plot <- grid.arrange(grobs=zone_size_plots, nrow=1, 
+                               widths=n_country_year_by_crop) 
+ggsave(paste0(PATH, "zone_size_plot.png"), zone_size_plot)
+```
+
+## Table 2: Within-zone R^2
+
+Note: Cross-zone R^2 is computed in `photo_model_eval.Rmd`.
+
+```{r}
+# Read in r_sq_list
+r_sq_list <- readRDS(paste0(PATH, "r_sq_list.rds"))
+```
+
+```{r}
+within_r2 <- sapply(r_sq_list, function(df) mean(df$r2))
+within_r2
+```
+
+## Figure 3: Yield histograms
+
+```{r}
+# Filter data to zones with >= 20 fields
+large_zones <- zone_sizes %>%
+  filter(n_fields >= 20) %>%
+  pull(zone)
+filtered_data <- summary_file %>%
+  filter(zone %in% large_zones)
+```
+
+```{r}
+yield_plots <- lapply(crops, function(crp) {
+  filtered_data %>%
+    filter(crop==crp) %>%
+    rename(yield=Avg_yield_mt_ha) %>%
+    ggplot(aes(x=yield)) +
+    geom_histogram(alpha=0.3, binwidth=1, boundary=0.0001, fill="red",
+                   aes(y = after_stat(density))) +
+    geom_vline(xintercept=0) +
+    labs(x="yield (mt/ha)", y="", title=crp) +
+    facet_wrap(~ country_year, nrow=1, scales="fixed") +
+    theme_bw() +
+    theme(text = element_text(size = 14),
+          axis.text.x = element_text(angle = 90, hjust = 1, size = 14))
+})
+n_country_year_by_crop <- sapply(crops, function(crp) mean(CROPS==crp))
+yield_plot <- grid.arrange(grobs=yield_plots, nrow=1, 
+                           widths=n_country_year_by_crop) 
+yield_plot
+ggsave(paste0(PATH, "yield_plot.png"), plot=yield_plot) 
+```
+## Figure 4: Relative efficiency plots
+
+```{r}
+## Function for computing relative efficiencies to be plugged into boot()
+## (for bootstrap confidence intervals of rel. eff.)
+boot_colmeans <- function(data, indices, pow) {
+  return((mean(data[indices,1]) / colMeans(data[indices,-1]))^pow)
+}
+```
+
+```{r}
+## Average simulation output across reps and simplify data structure
+simplify_and_avg <- function(data) {
+  data_simp <- data
+  ## Average across reps
+  n_rep <- length(data_simp[[1]])
+  data_avg <- lapply(1:n_rep, function(i) {
+    i_list <- lapply(data_simp, function(q) q[[i]])
+    return(Reduce("+", i_list) / length(i_list))
+  })
+  names(data_avg) <- names(data_simp[[1]])
+  return(data_avg)
+}
+```
+
+```{r}
+## Compute relative efficiency estimates and bootstrap CI's
+get_rel_eff <- function(data, pow, seed=NULL) {
+  data_avg <- simplify_and_avg(data)
+  
+  ## Compute bootstrap CI's
+  set.seed(seed)
+  boot_results <- lapply(data_avg, function(df) boot(df[,colnames(df) != "size"], statistic=boot_colmeans, R=10000, pow=pow))
+  rel_eff <- lapply(boot_results, function(res) {
+    cis <- data.frame(t(sapply(1:ncol(res$t), function(i) boot.ci(res, type="bca", index=i)$bca[,4:5])))
+    rownames(cis) <- colnames(data_avg[[1]])[-c(1, ncol(data_avg[[1]]))]
+    colnames(cis) <- c("lower", "upper")
+    cis$means <- res$t0
+    return(cis)
+  })
+  return(rel_eff)
+}
+```
+
+```{r}
+## Wrapper to compute all needed metrics from simulation output
+get_eval_results <- function(data_out, cy_names, print=FALSE, 
+                             weighted=FALSE, seed=NULL) {
+  ## Aggregate data_out across study regions
+  data_out_agg <- lapply(data_out, function(d) lapply(d, aggregate_results_over_study_regions))
+  
+  ## Extract average CI widths over reps
+  data_widths <- lapply(data_out_agg, function(d) {
+    out <- lapply(d, function(cy_out) as.data.frame(c(lapply(cy_out, function(df) df$ci_upper-df$ci_lower), list(size=cy_out[[1]]$size))))
+    names(out) <- cy_names
+    return(out)
+  })
+  avg_widths <- simplify_and_avg(data_widths)
+  
+  ## Extract average squared errors over reps
+  data_sq_err <- lapply(data_out_agg, function(d) {
+    out <- lapply(d, function(cy_out) as.data.frame(c(lapply(cy_out, function(df) (df$point_est - df$theta)^2), list(size=cy_out[[1]]$size))))
+    names(out) <- cy_names
+    return(out)
+  })
+  avg_sq_err <- simplify_and_avg(data_sq_err)
+  
+  ## Extract CI-based rel. eff.
+  rel_eff_ci <- get_rel_eff(data_widths, pow=2, seed=seed)
+  
+  ## Extract MSE-based rel. eff.
+  rel_eff_mse <- get_rel_eff(data_sq_err, pow=1, seed=seed)
+  
+  ## Extract CI coverages
+  coverages <- lapply(data_out_agg, function(l) lapply(l, function(cy_out) sapply(cy_out, function(df) get_coverage(df, df$theta))))
+  coverages <- Reduce("+", lapply(1:length(coverages), function(i) {
+    cvg <- coverages[[i]]
+    comb <- as.data.frame(do.call(cbind, cvg))
+    colnames(comb) <- cy_names
+    return(comb)
+  })) / length(coverages)
+
+  # Print
+  if (print) {
+    cat("CI-based relative efficiencies:\n")
+    print(rel_eff_ci)
+    cat("MSE-based relative efficiencies:\n")
+    print(rel_eff_mse)
+    cat("CI coverages:\n")
+    print(coverages)
+  }
+  return(list(widths=avg_widths, sq_err=avg_sq_err, rel_eff_ci=rel_eff_ci, 
+              rel_eff_mse=rel_eff_mse, coverages=coverages))
+}
+```
+
+```{r}
+## Process relative efficiencies for plotting
+process_rel_eff <- function(results) {
+  df <- do.call(cbind, results) %>%
+    rownames_to_column(var="estimator") %>%
+    pivot_longer(cols=!estimator, names_to=c("country", "year", "crop", "type"),
+                 names_pattern="([^_]+)_([0-9]+)_([^_]+)\\.([^\\.]+)") %>%
+    pivot_wider(names_from="type", values_from="value") %>%
+    mutate(country_year=paste(country, year, sep=" "))
+  return(df)
+}
+```
+
+```{r}
+# Read in sim out files
+global_outs_t <- readRDS(paste0(PATH, "global_outs_t.rds"))
+global_outs_bca <- readRDS(paste0(PATH, "global_outs_bca.rds"))
+global_outs_clt <- readRDS(paste0(PATH, "global_outs_clt.rds"))
+global_outs_bca_rf <- readRDS(paste0(PATH, "global_outs_bca_rf.rds"))
+global_outs_pct <- readRDS(paste0(PATH, "global_outs_pct.rds"))
+study_region_outs_t <- readRDS(paste0(PATH, "study_region_outs_t.rds"))
+study_region_outs_bca <- readRDS(paste0(PATH, "study_region_outs_bca.rds"))
+study_region_outs_clt <- readRDS(paste0(PATH, "study_region_outs_clt.rds"))
+study_region_outs_bca_rf <- readRDS(paste0(PATH, "study_region_outs_bca_rf.rds"))
+study_region_outs_pct <- readRDS(paste0(PATH, "study_region_outs_pct.rds"))
+zone_outs_t <- readRDS(paste0(PATH, "zone_outs_t.rds"))
+zone_outs_bca <- readRDS(paste0(PATH, "zone_outs_bca.rds"))
+zone_outs_clt <- readRDS(paste0(PATH, "zone_outs_clt.rds"))
+zone_outs_pct <- readRDS(paste0(PATH, "zone_outs_pct.rds"))
+```
+
+```{r}
+# Process sim outs to compute evaluation metrics
+cy_names <- paste(COUNTRIES, YEARS, sep="_")
+global_results_t <- get_eval_results(global_outs_t, cy_names, seed=1)
+global_results_bca <- get_eval_results(global_outs_bca, cy_names, seed=1)
+global_results_bca_rf <- get_eval_results(global_outs_bca_rf, cy_names, seed=1)
+global_results_pct <- get_eval_results(global_outs_pct, cy_names, seed=1)
+global_results_clt <- get_eval_results(global_outs_clt, cy_names, seed=1)
+study_region_results_t <- get_eval_results(study_region_outs_t, cy_names, seed=1)
+study_region_results_bca <- get_eval_results(study_region_outs_bca, cy_names, seed=1) # main text results
+study_region_results_bca_rf <- get_eval_results(study_region_outs_bca_rf, cy_names, seed=1)
+study_region_results_pct <- get_eval_results(study_region_outs_pct, cy_names, seed=1)
+study_region_results_clt <- get_eval_results(study_region_outs_clt, cy_names, seed=1)
+zone_results_t <- get_eval_results(zone_outs_t, cy_names, seed=1)
+zone_results_bca <- get_eval_results(zone_outs_bca, cy_names, seed=1)
+zone_results_clt <- get_eval_results(zone_outs_clt, cy_names, seed=1)
+zone_results_pct <- get_eval_results(zone_outs_pct, cy_names, seed=1)
+```
+
+```{r}
+## Plot relative efficiencies
+# Inputs:
+#   results: List of simulation results, one for each (country, year)
+#   crop_list: List of crop names for each (country, year)
+#   r_sq_list: List of data frames of zone level R^2 estimates of vision model for each (country, year)
+#   sample_size_rat: unlabeled data size / labeled data size (N / n)
+plot_rel_eff <- function(results, crop_list, r_sq_list, sample_size_rat) {
+  country_years <- names(r_sq_list)
+  
+  # Add crop names to results
+  results_with_crop_names <- results
+  names(results_with_crop_names) <- paste(names(results), crop_list, sep="_")
+  
+  # Compute rel_eff and process results into long format for ggplot
+  plot_df <- process_rel_eff(results_with_crop_names)
+  
+  # Ensure results and r_sq_list have same names
+  if (!all(sort(unique(plot_df$country_year)) == country_years)) {
+    stop("results and r_sq_list do not have the same names")
+  }
+  
+  # Compute theoretical relative efficiencies based on r_sq_list
+  theo_rel_eff_list <- sapply(r_sq_list, function(df) with(df, mean(1/(1-sample_size_rat/(1+sample_size_rat)*r2))))
+  rsq_df <- data.frame(theo_eff=theo_rel_eff_list) %>%
+    rownames_to_column(var="country_year") %>%
+    mutate(crop=crop_list)
+   
+  crops <- unique(crop_list)
+  
+  # Plot
+  plots <- lapply(crops, function(crp) {
+    plot_df %>%
+      filter(crop==crp) %>%
+      ggplot() +
+      geom_point(aes(x=means, y=estimator)) +
+      geom_errorbar(aes(y=estimator, xmin=lower, xmax=upper)) +
+      geom_vline(xintercept=1, color="forestgreen") +
+      geom_vline(data=filter(rsq_df, crop==crp), 
+                 aes(xintercept=theo_eff), linetype="dashed",
+                 color="darkgrey") +
+      labs(x="", y="", title=crp) +
+      facet_wrap(~country_year, ncol=1, scales="fixed") +
+      theme(plot.margin=unit(c(0,0,0,0), "cm"),
+            text = element_text(size = 14),
+            axis.text.x = element_text(angle = 0, hjust = 1))
+  })
+  n_country_year_by_crop <- sapply(crops, function(crp) mean(CROPS==crp))
+  final_plot <- grid.arrange(grobs=plots, ncol=1, heights=n_country_year_by_crop + 0.2) 
+  return(final_plot)
+}
+```
+
+```{r}
+# Rel eff plots
+mse_plot <- plot_rel_eff(results=study_region_results_bca$rel_eff_mse,
+                         crop_list=CROPS, r_sq_list=r_sq_list, 
+                         sample_size_rat=4) # mse-based rel_eff.
+ci_plot <- plot_rel_eff(results=study_region_results_bca$rel_eff_ci,
+                        crop_list=CROPS, r_sq_list=r_sq_list, 
+                        sample_size_rat=4) # ci-based rel_eff
+total_plot <- grid.arrange(mse_plot, ci_plot, nrow=1)
+total_plot
+ggsave(paste0(PATH, "rel_eff_plot.png"), height=12, units="cm", 
+       plot=total_plot)
+```
+
+## Figure 5: Zone-level relative efficiency plot
+
+```{r}
+# Plot zone-level relative efficiencies
+# Note: cases where lbl is perfectly accurate (i.e., all fields have 0 yield) are not plotted
+plot_zone_level_rel_eff <- function(results, crop_list, pow, col, 
+                                    baseline_col="lbl") {
+  n_zone_by_country_year <- sapply(results, nrow)
+  country_years <- gsub(pattern="_", replacement=" ", x=names(results))
+  result_df <- as.data.frame(do.call(rbind, results)) %>%
+    mutate(country_year=rep(country_years, times=n_zone_by_country_year),
+           crop=rep(crop_list, times=n_zone_by_country_year),
+           eff_size=size * (lbl/!!sym(col))^pow)
+  crops <- unique(crop_list)
+  plots <- lapply(crops, function(crp) {
+    result_df %>%
+      filter(crop==crp) %>%
+      ggplot(aes(x=size, y=eff_size)) +
+      geom_point(color="red") +
+      stat_smooth(method="lm", se=TRUE) +
+      labs(x="actual zone size", y="eff zone size", title=crp) +
+      geom_abline(slope=1, intercept=0, color="black", linetype="dashed", linewidth=1) +
+      expand_limits(x=0, y=0) +
+      geom_vline(xintercept=20, color="darkgrey", linetype="solid") +
+      facet_wrap(~country_year, ncol=1, scales="fixed") +
+      theme(strip.text = element_text(size=12, margin=margin(t=1, b=1)), 
+            plot.title = element_text(size=12),
+            axis.title = element_text(size=12),
+            axis.text.x = element_text(size=12),
+            axis.text.y = element_text(size=12))
+  })
+  n_country_year_by_crop <- sapply(crops, function(crp) mean(crop_list==crp))
+  final_plot <- grid.arrange(grobs=plots, ncol=1, heights=n_country_year_by_crop+0.3)
+  return(final_plot)
+}
+```
+
+```{r}
+# Zone level rel eff plots
+mse_zone_plot <- plot_zone_level_rel_eff(results=study_region_results_bca$sq_err, 
+                                         crop_list=CROPS, pow=1, col="ppipp")
+ci_zone_plot <- plot_zone_level_rel_eff(results=study_region_results_bca$widths, 
+                                        crop_list=CROPS, pow=2, col="ppipp")
+total_zone_plot <- grid.arrange(mse_zone_plot, ci_zone_plot, nrow=1)
+total_zone_plot
+ggsave(paste0(PATH, "zone_rel_eff_plot.png"), height=14, units="cm", 
+       plot=total_zone_plot)
+```
+
+## Table 3: Coverage probabilities
+
+```{r}
+# Print out coverages
+round(study_region_results_bca$coverages, 3)
+```
+
+# Appendix plots
+
+```{r}
+# Compare relative efficiencies from different sim settings
+compare_rel_eff_plot <- function(result_list, crop_list) {
+  result_names <- names(result_list)
+  if (is.null(result_names)) {
+    stop("result_list must have non-NULL names")
+  }
+  df_list <- lapply(result_list, function(res) {
+    names(res) <- paste(names(res), crop_list, sep="_")
+    process_rel_eff(res)
+  })
+  lengths <- sapply(df_list, nrow)
+  comb_df <- do.call(rbind, df_list) %>%
+    mutate(type=rep(result_names, lengths))
+  crops <- unique(crop_list)
+  plots <- lapply(crops, function(crp) {
+    comb_df %>%
+      filter(crop==crp) %>%
+        ggplot() +
+        geom_point(aes(x=means, y=estimator, color=type, shape=type), alpha=0.5) +
+        geom_errorbar(aes(y=estimator, xmin=lower, xmax=upper, color=type), alpha=0.5) +
+        geom_vline(xintercept=1, color="forestgreen") +
+        labs(x="", y="", title=crp) +
+        facet_wrap(~country_year, ncol=1, scales="fixed") +
+        theme(plot.margin=unit(c(0,0,0,0), "cm"))
+  })
+  n_country_year_by_crop <- sapply(crops, function(crp) mean(crop_list==crp))
+  final_plot <- grid.arrange(grobs=plots, ncol=1, heights=n_country_year_by_crop+0.3)
+  return(final_plot)
+}
+```
+
+```{r}
+# Plot empirical coverage of CI's from different sim settings
+coverage_plot <- function(result_list, crop_list) {
+  result_names <- names(result_list)
+  if (is.null(result_names)) {
+    stop("result_list must have non-NULL names")
+  }
+  plot_df <- do.call(rbind, lapply(result_list, function(res) {
+    res_with_crop <- res
+    names(res_with_crop) <- paste(names(res), crop_list, sep="_")
+    final_res <- rownames_to_column(res_with_crop, var="estimator")
+  })) %>%
+    mutate(type=rep(result_names, each=nrow(result_list[[1]])),
+           estimator=fct_relevel(estimator, "lbl")) %>%
+    pivot_longer(cols=!c(estimator, type), names_to=c("country", "year", "crop"), 
+                 names_sep="_", values_to="coverage") %>%
+    mutate(country_year=paste(country, year, sep=" "))
+
+  plots <- lapply(crops, function(crp) {
+    plot_df %>%
+      filter(crop==crp) %>%
+      ggplot() +
+      geom_point(aes(x=estimator, y=coverage, color=type, shape=type)) +
+      geom_line(aes(x=estimator, y=coverage, color=type, group=type),
+                linetype="dashed") +
+      geom_hline(yintercept=0.95, linetype="dotted") +
+      labs(x="", y="", title=crp) +
+      facet_wrap(~country_year, ncol=1, scales="fixed") +
+      theme(strip.text.x = element_text(size = 7))
+  })
+  n_country_year_by_crop <- sapply(crops, function(crp) mean(crop_list==crp))
+  final_plot <- grid.arrange(grobs=plots, ncol=1, heights=n_country_year_by_crop+0.2)
+  return(final_plot)
+}
+```
+
+```{r}
+# Plot histograms of CI widths from different sim settings
+width_plot <- function(result_list, crop_list) {
+  result_names <- names(result_list)
+  if (is.null(result_names)) {
+    stop("result_list must have non-NULL names")
+  }
+  df_list <- lapply(result_list, function(dfs) {
+    country_years <- names(dfs)
+    lens <- sapply(dfs, nrow)
+    comb_df <- as.data.frame(do.call(rbind, dfs)) %>%
+      mutate(country_year=rep(country_years, lens),
+             crop=rep(crop_list, lens)) %>%
+      pivot_longer(cols=!c(crop, country_year), names_to="estimator", values_to="CI widths") %>%
+      separate(col=country_year, into=c("country", "year"), sep="_") %>%
+      mutate(country_year=paste(country, year, sep=" ")) %>%
+      filter(estimator %in% EST_NAMES)
+  })
+  plot_df <- do.call(rbind, df_list) %>% 
+    mutate(type=rep(result_names, each=nrow(df_list[[1]])),
+           estimator=fct_relevel(estimator, "lbl"))
+  crops <- unique(crop_list)
+  plots <- lapply(crops, function(crp) {
+    plot_df %>%
+      filter(crop==crp) %>%
+      ggplot() +
+      geom_boxplot(aes(x=estimator, y=`CI widths`, color=type), outlier.size=0.1) +
+      labs(x="", y="", title=crp) +
+      facet_wrap(~country_year, nrow=1, scales="fixed") +
+      theme(strip.text.x = element_text(size = 7),
+            axis.text.x = element_text(angle = 90))
+  })
+  n_country_year_by_crop <- sapply(crops, function(crp) mean(crop_list==crp))
+  final_plot <- grid.arrange(grobs=plots, nrow=1, widths=n_country_year_by_crop+0.2)
+  return(final_plot)
+}
+```
+
+## Fig. 6: Compare empirical coverages of different CI computations
+
+```{r}
+## Coverage plot
+result_list <- list(bca=study_region_results_bca$coverage, 
+                    t=study_region_results_t$coverage,
+                    pct=study_region_results_pct$coverage,
+                    clt=study_region_results_clt$coverage)
+ci_type_cvg_plot <- coverage_plot(result_list=result_list, crop_list=CROPS)
+ci_type_cvg_plot
+ggsave(paste0(PATH, "ci_type_coverage_compare.png"), plot=ci_type_cvg_plot)
+```
+
+## Figure 7: Compare width distributions of different CI computations
+
+```{r}
+## Width plot
+result_list <- list(bca=study_region_results_bca$widths, 
+                    t=study_region_results_t$widths,
+                    pct=study_region_results_pct$widths,
+                    clt=study_region_results_clt$widths)
+ci_type_width_plot <- width_plot(result_list=result_list, crop_list=CROPS)
+ci_type_width_plot
+ggsave(paste0(PATH, "ci_type_width_compare.png"), plot=ci_type_width_plot)
+```
+
+## Fig. 8: Compare rel. eff. from different amounts of pooling for learning control function
+
+```{r}
+# MSE rel eff comparison
+result_list <- list(zone=zone_results_bca$rel_eff_mse, 
+                    `study region`=study_region_results_bca$rel_eff_mse,
+                    global=global_results_bca$rel_eff_mse)
+mse_rel_eff_scale <- compare_rel_eff_plot(result_list=result_list, crop_list=CROPS)
+# CI rel eff comparison
+result_list <- list(zone=zone_results_bca$rel_eff_ci, 
+                    `study region`=study_region_results_bca$rel_eff_ci,
+                    global=global_results_bca$rel_eff_ci)
+ci_rel_eff_scale <- compare_rel_eff_plot(result_list=result_list, crop_list=CROPS)
+rel_eff_scale_plot <- grid.arrange(mse_rel_eff_scale, ci_rel_eff_scale, nrow=1)
+rel_eff_scale_plot
+ggsave(paste0(PATH, "rel_eff_scale_compare.png"), plot=rel_eff_scale_plot)
+```
+
+## Fig. 9: Compare empirical coverage of CI's from different amounts of pooling for learning control function
+
+```{r}
+result_list <- list(zone=zone_results_bca$coverage, 
+                    `study region`=study_region_results_bca$coverage,
+                    global=global_results_bca$coverage)
+rel_eff_scale_coverage_plot <- coverage_plot(result_list=result_list, crop_list=CROPS)
+ggsave(paste0(PATH, "rel_eff_scale_coverage.png"), plot=rel_eff_scale_coverage_plot)
+```
+
+```{r}
+
+```
+
+## Fig. 10: Compare rel. eff. from glmnet vs. random forest
+
+```{r}
+result_list <- list(rf=study_region_results_bca_rf$rel_eff_mse, 
+                    glmnet=study_region_results_bca$rel_eff_mse)
+mse_alg_compare <- compare_rel_eff_plot(result_list=result_list, crop_list=CROPS)
+result_list <- list(rf=study_region_results_bca_rf$rel_eff_ci, 
+                    glmnet=study_region_results_bca$rel_eff_ci)
+ci_alg_compare <- compare_rel_eff_plot(result_list=result_list, crop_list=CROPS)
+alg_compare_plot <- grid.arrange(mse_alg_compare, ci_alg_compare, nrow=1)
+alg_compare_plot
+ggsave(paste0(PATH, "rel_eff_alg_compare.png"), plot=rel_eff_scale_plot)
+```
+
+## Fig. 11: Compare empirical CI coverage from glmnet vs. random forest
+
+```{r}
+result_list <- list(rf=study_region_results_bca_rf$coverages, 
+                    glmnet=study_region_results_bca$coverages)
+alg_cvg_plot <- coverage_plot(result_list=result_list, crop_list=CROPS)
+ggsave(paste0(PATH, "rel_eff_alg_coverage.png"), plot=alg_cvg_plot)
+```
+
+```{r}
+
+```
+
+
+

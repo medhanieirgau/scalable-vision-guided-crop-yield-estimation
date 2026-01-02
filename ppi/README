@@ -1,0 +1,15 @@
+This directory has two main .Rmd files with analysis code:
+- photo_model_eval.Rmd
+- figures.Rmd
+
+The first file, photo_model_eval.Rmd, reads in files of the form “COUNTRY_YEAR_filtered.csv” containing the ground truth yields along with the photo model predictions for the corresponding country and year. Then it runs the simulations described in Section 6 and Appendix C of the paper to empirically evaluate the performance of our proposed methods. 
+
+The output of these simulation runs is stored in .rds files whose names are formatted as “SCALE_outs_CIMETHOD.rds;” these files are provided so that one does not need to re-run the simulations, which will typically take at least several hours. It also provides the results of the Zambia simulations without providing the sensitive field-level data in Zambia. The simulation runs in the main text (Section 6) have SCALE as “study_region” and CIMETHOD as “bca.” 
+
+We also store data frames of zone-level estimates of the R^2 for the photo prediction model in “zone_r_sq_COUNTRY YEAR.csv.” Shapefiles of the first-level administrative subdivisions in each country (publicly available, provided, taken from ArcGIS online) are used to assign zones to study regions. 
+
+To be able to re-run the experiments in “photo_model_eval.Rmd,” the global constants at the top of the file need to be modified appropriately, particularly the path and available countries/years (e.g., since we are unable to share the Zambia data, you would need to remove (Zambia, 2023) and (Zambia, 2024)). 
+
+The file “figures.Rmd” reads in the .rds files produced from the simulation runs as described above, as well as the zone R^2 files, and reproduces the figures and tables in the text. Files named “COUNTRY_YEAR_cleaned.csv” containing the original data (before filtering out to zones with at least 20 fields and before adding photo model predictions) are also used to create the tables and histograms of summary statistics.
+
+Finally, the “helpers.R” file contains some helper functions used in the two .Rmd files.

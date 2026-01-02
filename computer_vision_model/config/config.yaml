@@ -1,0 +1,17 @@
+paths:
+  data_dir: 
+  ckpt_dir: 
+  dataset_dir: 
+
+country: zimbabwe
+
+year: 2024
+
+training:
+  learning_rate: 0.0002
+  batch_size: 128
+  epochs: 10
+
+val:
+  batch_size: 128
+
